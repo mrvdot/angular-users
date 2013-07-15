@@ -94,6 +94,8 @@ angular.module('mvd.users', ['ngCookies'])
 		}
 	})
 	.factory('user', function ($http, $cookies, $cookieStore, $window, userConfig) {
+		var slice = [].slice;//for convenience
+		
 		userConfig._init();
 
 		var config = userConfig.get();
@@ -105,66 +107,115 @@ angular.module('mvd.users', ['ngCookies'])
 		};
 
 		var storeUser = function () {
-			var cookieName = config.cookiePrefix + 'user';
+			var cookieName = _config.cookiePrefix + 'user';
+		}
+
+		var baseCall = {
+			url : '',
+			method : config.defaultMethod,
+			success : angular.noop,
+			error : angular.noop
 		}
 
 		User.prototype = {
-			oauth : {
-				session : function (provider) {
-					var self = this;
-					var url = userConfig.oauthCallUrl('session').replace('{$PROVIDER}',provider);
-					var method = userConfig.oauthHttpMethod('session');
-					if (method == 'jsonp') {
-						url += '?callback=JSON_CALLBACK';
+			getCall : function (call, calls) {
+				calls = calls || config.calls;
+				var levels = call.split('.');
+				if (levels.length > 1) {
+					calls = calls[levels.shift()]
+					call = levels.join('.');
+					return this.getCall(call, calls);
+				} else {
+					var c = calls[call];
+					if (!c) {
+						return undefined;
 					};
-					$http[method](url).success(function (response) {
-						var output = $window.open(
-							response.url,
-							'oauth_session',
-							'dependent,resizable,scrollbars,chrome,centerscreen,width=500,height=500'
-						);
-						self.status(provider, output);
-					});
-				},
-				status : function (provider, oauthWindow) {
-					var self = this;
-					var url = userConfig.oauthCallUrl('status').replace('{$PROVIDER}',provider);
-					var method = userConfig.oauthHttpMethod('session');
-					if (method == 'jsonp') {
-						url += '?callback=JSON_CALLBACK';
-					};
-					$http[method](url).success(function (response) {
-						console.log(response);
-						if (response.error) {
-							alert('OAuth denied: '+response.error);
-							return;
-						};
-						if (response.authentication == 'none') {
-							setTimeout(function () {
-								self.status(provider, true)
-							}, 200);
-						};
-						if (response.success) {
-							oauthWindow.close();
-							alert('OAuth success');
-						};
-					});
+					if (angular.isString(c)) {
+						return angular.extend({}, baseCall, {
+							url : c
+						});
+					} else {
+						return angular.extend({}, baseCall, c);
+					}
 				}
 			},
-      login : function (username, password, callback) {
-      	var url = userConfig.callUrl('login');
-      	var method = userConfig.httpMethod('login');
-      },
-      signup : function (username, password) {
-        return $http.jsonp(baseUrl + 'signup.jsonp?callback=JSON_CALLBACK&email=' + encodeURI(username) + '&password=' + encodeURI(password));
-      },
-      logout : function () {
-        return $http.get(baseUrl + 'logout.json');
-      },
-      loggedIn : function () {
-      	return this._data.loggedIn;
-      }
+			parseUrl : function (call, params) {
+				var url = call.url;
+				var callParams = call.params;
+				for (var i = 0, ii = callParams.length; i < ii; i++) {
+					url = url.replace('{$' + callParams[i].toUpperCase() + '}', params[i]);
+				}
+				return url;
+			},
+			do : function (call /*, ... params ...*/) {
+				var c = this.getCall(call)
+					, self = this;
+				if (!c) {
+					return false;
+				}
+				var params = slice.call(arguments, 1);
+				if (c.params) {
+					var url = config.baseUrl + self.parseUrl(c, params);
+				} else {
+					var url = config.baseUrl + c.url;
+				}
+				if (c.method == 'jsonp') {
+					url += '?callback=JSON_CALLBACK';
+				};
+				$http[c.method](url)
+					.success(function (response) {
+						if (response.error) {
+							self.processError.apply(self, [response, c].concat(params))
+						} else {
+							self.processSuccess.apply(self, [response, c].concat(params))
+						}
+					})
+					.error(function (response) {
+						self.processError.apply(self, [response, c].concat(params))
+					});
+			},
+			processSuccess : function (data, call /**, ... params ... **/) {
+				var params = slice.call(arguments, 2)
+					, success = call.success
+					, self = this
+					, c;
+				if (angular.isFunction(success)) {
+					success.apply(self, [data].concat(params));
+				} else if (c = self.getCall(success))  {
+					self.do.apply(self, [c, data].concat(params));
+				} else {
+					console.log('failed to process success with',data,call, params);
+				}
+			},
+			processError : function (data, call) {
+				var params = slice.call(arguments, 2)
+					, error = call.error
+					, self = this
+					, c;
+				if (angular.isFunction(error)) {
+					error.apply(self, [data].concat(params));
+				} else if (c = self.getCall(error))  {
+					self.do.apply(self, [c, data].concat(params));
+				} else {
+					console.log('failed to process error with',data,call, params);
+				}
+			},
+			isLoggedIn : function () {
+				return this._data.loggedIn;
+			},
+			setLoggedIn : function (val) {
+				this._data.loggedIn = val;
+			},
+			update : function (data) {
+				angular.extend(this, data);
+			}
     };
 
-    return new User();
+    var user = new User();
+
+    if (config.loadOnInit) {
+    	user.do('load');
+    };
+
+    return user;
 	});
