@@ -102,4 +102,4 @@ angular.module('mvd.users', ['ngCookies'])
       	return this._loggedIn;
       }
     };
-	})
+	});
