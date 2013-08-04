@@ -2,6 +2,7 @@
 	'use strict';
 
 	var capitalize = function (str) {
+		//Some libraries such as Sugar.JS include a capitalization method, use that if if exists
 		if (str.capitalize) {
 			return str.capitalize();
 		} else {
