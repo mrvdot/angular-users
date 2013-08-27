@@ -201,7 +201,11 @@
 						var url = config.baseUrl + c.url;
 					}
 					if (c.method == 'jsonp') {
-						url += '?callback=JSON_CALLBACK';
+						if (url.indexOf('?') < 0) {
+							url += '?callback=JSON_CALLBACK';
+						} else {
+							url += '&callback=JSON_CALLBACK';
+						}
 					};
 					$http[c.method](url)
 						.success(function (response) {
